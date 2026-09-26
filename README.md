@@ -6,6 +6,7 @@ A minimal C99 host that embeds [Wren](https://wren.io) and exposes a few
 ```text
 src/main.c          C host: SDL window, Wren VM, the foreign "sdl" module
 scripts/main.wren   Wren game script (copied next to the executable on build)
+assets/             images etc. (also copied next to the executable on build)
 vendor/SDL          git submodule, pinned to release-3.4.16
 vendor/wren         git submodule, wren-lang/wren main
 ```
@@ -66,6 +67,17 @@ cmake --build build -j
    frame. Those methods call foreign methods like `Input.keyDown`, `Draw.text`
    and `App.quit`, which run SDL code in C. Passing a wrong argument type to
    one of these is a normal Wren runtime error.
+
+Images are PNGs loaded with SDL's built-in `SDL_LoadPNG` (new in SDL 3.4), so
+there's no SDL_image dependency either. `Image` is a Wren foreign class wrapping
+an `SDL_Texture`, freed when Wren garbage-collects it:
+
+```wren
+var slime = Image.load("assets/Abyss_Slime_D_Jump_1.png")  // relative to the executable
+Draw.image(slime, x, y)         // top-left at (x, y), actual size
+Draw.image(slime, x, y, 2)      // 2x, with crisp pixel-art scaling
+System.print(slime.width)       // also slime.height
+```
 
 Text uses `SDL_RenderDebugText`, SDL3's built-in 8x8 font, so it needs no
 font files or SDL_ttf.

@@ -8,6 +8,8 @@
  *      the last frame) and then `Game.draw()` (rendering only).
  *   4. Inside those, Wren calls back into C through the `foreign` methods
  *      declared in the "sdl" module below (Draw.clear, Input.keyDown, ...).
+ *      The module also has one foreign class, Image, which wraps an
+ *      SDL_Texture loaded from a PNG file.
  *
  * Scripts can `import "name"` to load scripts/name.wren.
  */
@@ -35,6 +37,7 @@
 
 static SDL_Window *window;
 static SDL_Renderer *renderer;
+static char *baseDir;      /* "<executable dir>/" */
 static char *scriptsDir;   /* "<executable dir>/scripts/" */
 static bool running = true;
 
@@ -52,6 +55,13 @@ static const char *sdlModuleSource =
     "  foreign static clear(r, g, b)\n"
     "  foreign static color(r, g, b)\n"
     "  foreign static text(x, y, string)\n"
+    "  foreign static image(image, x, y)\n"
+    "  foreign static image(image, x, y, scale)\n"
+    "}\n"
+    "foreign class Image {\n"
+    "  construct load(path) {}\n"
+    "  foreign width\n"
+    "  foreign height\n"
     "}\n"
     "class Input {\n"
     "  foreign static keyDown(name)\n"
@@ -171,6 +181,93 @@ static void drawText(WrenVM *vm)
         SDL_RenderDebugText(renderer, (float)x, (float)y, text);
 }
 
+/*
+ * Image.load(path): a PNG, with path relative to the executable's directory
+ * (e.g. "assets/player.png"). Wren calls this "allocate" function with the
+ * constructor's arguments; the Image object's storage is an SDL_Texture *.
+ */
+static void imageAllocate(WrenVM *vm)
+{
+    const char *path;
+    if (!getString(vm, 1, "path", &path))
+        return;
+
+    char *fullPath;
+    if (SDL_asprintf(&fullPath, "%s%s", baseDir, path) < 0) {
+        wrenSetSlotString(vm, 0, "Out of memory.");
+        wrenAbortFiber(vm, 0);
+        return;
+    }
+    SDL_Surface *surface = SDL_LoadPNG(fullPath);
+    SDL_free(fullPath);
+    SDL_Texture *texture = surface ? SDL_CreateTextureFromSurface(renderer, surface) : NULL;
+    SDL_DestroySurface(surface);
+    if (!texture) {
+        char message[512];
+        SDL_snprintf(message, sizeof message, "Could not load image '%s': %s",
+                     path, SDL_GetError());
+        wrenSetSlotString(vm, 0, message);
+        wrenAbortFiber(vm, 0);
+        return;
+    }
+    /* Keep pixel art crisp when scaled up. */
+    SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_PIXELART);
+
+    SDL_Texture **slot = wrenSetSlotNewForeign(vm, 0, 0, sizeof *slot);
+    *slot = texture;
+}
+
+/* Called when the garbage collector frees an Image (or the VM shuts down). */
+static void imageFinalize(void *data)
+{
+    SDL_DestroyTexture(*(SDL_Texture **)data);
+}
+
+/* Reads the texture out of an Image in the given slot. */
+static bool getImage(WrenVM *vm, int slot, const char *arg, SDL_Texture **out)
+{
+    if (!checkType(vm, slot, WREN_TYPE_FOREIGN, arg))
+        return false;
+    *out = *(SDL_Texture **)wrenGetSlotForeign(vm, slot);
+    return true;
+}
+
+/* image.width / image.height: size in pixels. */
+static void imageWidth(WrenVM *vm)
+{
+    SDL_Texture *texture = *(SDL_Texture **)wrenGetSlotForeign(vm, 0);
+    wrenSetSlotDouble(vm, 0, texture->w);
+}
+
+static void imageHeight(WrenVM *vm)
+{
+    SDL_Texture *texture = *(SDL_Texture **)wrenGetSlotForeign(vm, 0);
+    wrenSetSlotDouble(vm, 0, texture->h);
+}
+
+/* Draw.image(image, x, y[, scale]): draw an Image with its top-left at (x, y). */
+static void drawImageScaled(WrenVM *vm, double scale)
+{
+    SDL_Texture *texture;
+    double x, y;
+    if (!getImage(vm, 1, "image", &texture) || !getNum(vm, 2, "x", &x) || !getNum(vm, 3, "y", &y))
+        return;
+    SDL_FRect dst = { (float)x, (float)y, (float)(texture->w * scale), (float)(texture->h * scale) };
+    SDL_RenderTexture(renderer, texture, NULL, &dst);
+}
+
+static void drawImage(WrenVM *vm)
+{
+    drawImageScaled(vm, 1);
+}
+
+static void drawImageScale(WrenVM *vm)
+{
+    double scale;
+    if (getNum(vm, 4, "scale", &scale))
+        drawImageScaled(vm, scale);
+}
+
 /* Input.keyDown(name): true if the named key ("Space", "A", "Escape", ...) is held. */
 static void inputKeyDown(WrenVM *vm)
 {
@@ -187,15 +284,20 @@ static void inputKeyDown(WrenVM *vm)
 static const struct {
     const char *className;
     const char *signature;   /* Wren signature: "name(_,_)", or "name" for a getter */
+    bool isStatic;
     WrenForeignMethodFn fn;
 } sdlBindings[] = {
-    { "App",   "quit()",       appQuit },
-    { "App",   "width",        appWidth },
-    { "App",   "height",       appHeight },
-    { "Draw",  "clear(_,_,_)", drawClear },
-    { "Draw",  "color(_,_,_)", drawColor },
-    { "Draw",  "text(_,_,_)",  drawText },
-    { "Input", "keyDown(_)",   inputKeyDown },
+    { "App",   "quit()",         true,  appQuit },
+    { "App",   "width",          true,  appWidth },
+    { "App",   "height",         true,  appHeight },
+    { "Draw",  "clear(_,_,_)",   true,  drawClear },
+    { "Draw",  "color(_,_,_)",   true,  drawColor },
+    { "Draw",  "text(_,_,_)",    true,  drawText },
+    { "Draw",  "image(_,_,_)",   true,  drawImage },
+    { "Draw",  "image(_,_,_,_)", true,  drawImageScale },
+    { "Image", "width",          false, imageWidth },
+    { "Image", "height",         false, imageHeight },
+    { "Input", "keyDown(_)",     true,  inputKeyDown },
 };
 
 /* Wren asks us for the C function behind each `foreign` method it sees. */
@@ -204,15 +306,29 @@ static WrenForeignMethodFn bindForeignMethod(WrenVM *vm, const char *module,
                                              const char *signature)
 {
     (void)vm;
-    if (strcmp(module, "sdl") != 0 || !isStatic)
+    if (strcmp(module, "sdl") != 0)
         return NULL;
 
     for (size_t i = 0; i < SDL_arraysize(sdlBindings); i++) {
         if (strcmp(className, sdlBindings[i].className) == 0 &&
-            strcmp(signature, sdlBindings[i].signature) == 0)
+            strcmp(signature, sdlBindings[i].signature) == 0 &&
+            isStatic == sdlBindings[i].isStatic)
             return sdlBindings[i].fn;
     }
     return NULL;
+}
+
+/* Wren asks us how to create and free each `foreign class` it sees. */
+static WrenForeignClassMethods bindForeignClass(WrenVM *vm, const char *module,
+                                                const char *className)
+{
+    (void)vm;
+    WrenForeignClassMethods methods = {0};
+    if (strcmp(module, "sdl") == 0 && strcmp(className, "Image") == 0) {
+        methods.allocate = imageAllocate;
+        methods.finalize = imageFinalize;
+    }
+    return methods;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -308,7 +424,8 @@ static bool initSDL(void)
 static WrenVM *startWren(void)
 {
     const char *basePath = SDL_GetBasePath();
-    if (!basePath || SDL_asprintf(&scriptsDir, "%sscripts/", basePath) < 0) {
+    if (!basePath || !(baseDir = SDL_strdup(basePath)) ||
+        SDL_asprintf(&scriptsDir, "%sscripts/", basePath) < 0) {
         SDL_Log("Could not find the executable's directory: %s", SDL_GetError());
         return NULL;
     }
@@ -323,6 +440,7 @@ static WrenVM *startWren(void)
     config.writeFn = writeFn;
     config.errorFn = errorFn;
     config.bindForeignMethodFn = bindForeignMethod;
+    config.bindForeignClassFn = bindForeignClass;
     config.loadModuleFn = loadModule;
     WrenVM *vm = wrenNewVM(&config);
 
@@ -408,6 +526,7 @@ static void cleanup(WrenVM *vm)
     if (vm)
         wrenFreeVM(vm);
     SDL_free(scriptsDir);
+    SDL_free(baseDir);
     if (renderer)
         SDL_DestroyRenderer(renderer);
     if (window)

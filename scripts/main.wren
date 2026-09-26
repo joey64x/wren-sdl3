@@ -1,4 +1,4 @@
-import "sdl" for App, Draw, Input
+import "sdl" for App, Draw, Image, Input
 import "random" for Random
 
 System.print("Hello from Wren! (this goes to the terminal)")
@@ -14,6 +14,7 @@ class Game {
   static init() {
     __bgColor = [30, 30, 46]
     __spaceWasDown = false
+    __slime = Image.load("assets/Abyss_Slime_D_Jump_1.png")
   }
 
   static update(dt) {
@@ -31,7 +32,14 @@ class Game {
     Draw.clear(__bgColor[0], __bgColor[1], __bgColor[2])
     Draw.color(255, 255, 255)
     var text = "Hello, Wren and SDL!"
-    Draw.text((App.width - text.count * 8) / 2, (App.height - 8) / 2, text)
+    var textY = (App.height - 8) / 2
+    Draw.text((App.width - text.count * 8) / 2, textY, text)
+
+    // Centered just above the text, drawn at 2x size.
+    var scale = 2
+    var w = __slime.width * scale
+    var h = __slime.height * scale
+    Draw.image(__slime, (App.width - w) / 2, textY - h - 8, scale)
   }
 }
 

@@ -41,12 +41,15 @@ endif()
 set_target_properties(game PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}>)
 
-# Mirror scripts/ next to the executable. This is a separate always-run target
-# (rather than a POST_BUILD step on `game`) so script-only edits are picked up
-# even when `game` itself is up to date. The directory is wiped first so that
-# deleted or renamed scripts don't linger.
-add_custom_target(copy_scripts
+# Mirror scripts/ and assets/ next to the executable. This is a separate
+# always-run target (rather than a POST_BUILD step on `game`) so script- and
+# asset-only edits are picked up even when `game` itself is up to date. Each
+# directory is wiped first so that deleted or renamed files don't linger.
+add_custom_target(copy_data
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/scripts
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts ${CMAKE_CURRENT_BINARY_DIR}/scripts)
-add_dependencies(game copy_scripts)
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts ${CMAKE_CURRENT_BINARY_DIR}/scripts
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets ${CMAKE_CURRENT_BINARY_DIR}/assets)
+add_dependencies(game copy_data)
