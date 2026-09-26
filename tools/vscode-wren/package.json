@@ -1,0 +1,22 @@
+{
+  "name": "wren-local",
+  "displayName": "Wren (local)",
+  "description": "Syntax highlighting for the Wren scripting language.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": { "vscode": "^1.60.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [{
+      "id": "wren",
+      "aliases": ["Wren", "wren"],
+      "extensions": [".wren"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "wren",
+      "scopeName": "source.wren",
+      "path": "./syntaxes/wren.tmLanguage.json"
+    }]
+  }
+}

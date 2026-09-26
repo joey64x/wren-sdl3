@@ -1,0 +1,6 @@
+[submodule "vendor/wren"]
+	path = vendor/wren
+	url = https://github.com/wren-lang/wren.git
+[submodule "vendor/SDL"]
+	path = vendor/SDL
+	url = https://github.com/libsdl-org/SDL.git
