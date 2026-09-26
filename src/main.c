@@ -57,6 +57,7 @@ static const char *sdlModuleSource =
     "  foreign static text(x, y, string)\n"
     "  foreign static image(image, x, y)\n"
     "  foreign static image(image, x, y, scale)\n"
+    "  foreign static imageRect(image, sx, sy, sw, sh, x, y, scale)\n"
     "}\n"
     "foreign class Image {\n"
     "  construct load(path) {}\n"
@@ -245,15 +246,23 @@ static void imageHeight(WrenVM *vm)
     wrenSetSlotDouble(vm, 0, texture->h);
 }
 
+/* Draws all of texture, or the part of it in src, with its top-left at (x, y). */
+static void drawTexture(SDL_Texture *texture, const SDL_FRect *src,
+                        double x, double y, double scale)
+{
+    float w = src ? src->w : texture->w;
+    float h = src ? src->h : texture->h;
+    SDL_FRect dst = { (float)x, (float)y, (float)(w * scale), (float)(h * scale) };
+    SDL_RenderTexture(renderer, texture, src, &dst);
+}
+
 /* Draw.image(image, x, y[, scale]): draw an Image with its top-left at (x, y). */
 static void drawImageScaled(WrenVM *vm, double scale)
 {
     SDL_Texture *texture;
     double x, y;
-    if (!getImage(vm, 1, "image", &texture) || !getNum(vm, 2, "x", &x) || !getNum(vm, 3, "y", &y))
-        return;
-    SDL_FRect dst = { (float)x, (float)y, (float)(texture->w * scale), (float)(texture->h * scale) };
-    SDL_RenderTexture(renderer, texture, NULL, &dst);
+    if (getImage(vm, 1, "image", &texture) && getNum(vm, 2, "x", &x) && getNum(vm, 3, "y", &y))
+        drawTexture(texture, NULL, x, y, scale);
 }
 
 static void drawImage(WrenVM *vm)
@@ -266,6 +275,25 @@ static void drawImageScale(WrenVM *vm)
     double scale;
     if (getNum(vm, 4, "scale", &scale))
         drawImageScaled(vm, scale);
+}
+
+/*
+ * Draw.imageRect(image, sx, sy, sw, sh, x, y, scale): draw the sw x sh part of
+ * an Image whose top-left is at (sx, sy), e.g. one frame of a sprite sheet.
+ */
+static void drawImageRect(WrenVM *vm)
+{
+    static const char *names[7] = { "sx", "sy", "sw", "sh", "x", "y", "scale" };
+    SDL_Texture *texture;
+    double n[7];
+    if (!getImage(vm, 1, "image", &texture))
+        return;
+    for (int i = 0; i < 7; i++) {
+        if (!getNum(vm, i + 2, names[i], &n[i]))
+            return;
+    }
+    SDL_FRect src = { (float)n[0], (float)n[1], (float)n[2], (float)n[3] };
+    drawTexture(texture, &src, n[4], n[5], n[6]);
 }
 
 /* Input.keyDown(name): true if the named key ("Space", "A", "Escape", ...) is held. */
@@ -287,17 +315,18 @@ static const struct {
     bool isStatic;
     WrenForeignMethodFn fn;
 } sdlBindings[] = {
-    { "App",   "quit()",         true,  appQuit },
-    { "App",   "width",          true,  appWidth },
-    { "App",   "height",         true,  appHeight },
-    { "Draw",  "clear(_,_,_)",   true,  drawClear },
-    { "Draw",  "color(_,_,_)",   true,  drawColor },
-    { "Draw",  "text(_,_,_)",    true,  drawText },
-    { "Draw",  "image(_,_,_)",   true,  drawImage },
-    { "Draw",  "image(_,_,_,_)", true,  drawImageScale },
-    { "Image", "width",          false, imageWidth },
-    { "Image", "height",         false, imageHeight },
-    { "Input", "keyDown(_)",     true,  inputKeyDown },
+    { "App",   "quit()",                     true,  appQuit },
+    { "App",   "width",                      true,  appWidth },
+    { "App",   "height",                     true,  appHeight },
+    { "Draw",  "clear(_,_,_)",               true,  drawClear },
+    { "Draw",  "color(_,_,_)",               true,  drawColor },
+    { "Draw",  "text(_,_,_)",                true,  drawText },
+    { "Draw",  "image(_,_,_)",               true,  drawImage },
+    { "Draw",  "image(_,_,_,_)",             true,  drawImageScale },
+    { "Draw",  "imageRect(_,_,_,_,_,_,_,_)", true,  drawImageRect },
+    { "Image", "width",                      false, imageWidth },
+    { "Image", "height",                     false, imageHeight },
+    { "Input", "keyDown(_)",                 true,  inputKeyDown },
 };
 
 /* Wren asks us for the C function behind each `foreign` method it sees. */

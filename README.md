@@ -77,6 +77,30 @@ var slime = Image.load("assets/Abyss_Slime_D_Jump_1.png")  // relative to the ex
 Draw.image(slime, x, y)         // top-left at (x, y), actual size
 Draw.image(slime, x, y, 2)      // 2x, with crisp pixel-art scaling
 System.print(slime.width)       // also slime.height
+
+// Part of an image: the sw x sh rectangle at (sx, sy), e.g. one sprite frame.
+Draw.imageRect(slime, sx, sy, sw, sh, x, y, scale)
+```
+
+`scripts/animation.wren` builds sprite sheets and looping animations on top
+of `Draw.imageRect`:
+
+```wren
+import "animation" for Animation, SpriteSheet
+
+// A single row of equal-width frames: 6 frames at 8 fps.
+var idle = Animation.strip(Image.load("assets/Abyss_Slime_D_Idle.png"), 6, 8)
+
+// A grid of 64x64 frames, one animation per row: row 2, 6 frames, 10 fps.
+var sheet = SpriteSheet.new(Image.load("assets/Abyss_Slime_D.png"), 64, 64)
+var third = Animation.new(sheet, 2, 6, 10)
+sheet.draw(column, row, x, y, scale)   // or draw a single frame directly
+
+idle.update(dt)      // in Game.update
+idle.draw(x, y, 2)   // in Game.draw
+
+third.looping = false  // play once and hold the last frame
+third.restart()        // play it again; check third.finished / third.progress
 ```
 
 Text uses `SDL_RenderDebugText`, SDL3's built-in 8x8 font, so it needs no
@@ -84,3 +108,7 @@ font files or SDL_ttf.
 
 To add more SDL features, declare a new `foreign static` method in
 `sdlModuleSource`, write its C function, and add a line to `sdlBindings`.
+
+## Credits and Acknowledgments
+
+Images from [ElvGames](https://elvgames.itch.io/terms) Ultimate Top Down Adventure Pack.
